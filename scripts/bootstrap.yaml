@@ -1,0 +1,23 @@
+#cloud-config
+bootcmd:
+  # Prevent oci-dhclient/oci-linux-config from rewriting /etc/hosts later
+  - [ bash, -lc, "sed -i 's/^PRESERVE_HOSTINFO=.*/PRESERVE_HOSTINFO=3/' /etc/oci-hostname.conf" ]
+
+runcmd:
+  - |
+      set -euo pipefail
+
+      ip="$(curl -s -H 'Authorization: Bearer Oracle' http://169.254.169.254/opc/v2/vnics/ \
+           | python3 -c 'import sys,json; print(json.load(sys.stdin)[0]["privateIp"])')"
+
+      hn="$(hostname -s)"
+      domain="$(awk '/^search/{print $2; exit}' /etc/resolv.conf)"
+      fqdn="${hn}.${domain}"
+
+      # Remove any dangling IP-only lines and any existing line for this IP
+      sed -i -r '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\s*$/d' /etc/hosts
+      sed -i -r "\|^${ip}[[:space:]]|d" /etc/hosts
+
+      printf "%s %s %s\n" "$ip" "$fqdn" "$hn" >> /etc/hosts
+
+      su - opc -c "/opt/scripts/init.sh"
